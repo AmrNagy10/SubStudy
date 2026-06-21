@@ -5,7 +5,13 @@
 .venv1/
 venv/
 env/
+
+
+# =========================
+# IDEs & Editors
+# =========================
 .idea/
+.vscode/
 
 # =========================
 # Video Files (SubStudy Media)
