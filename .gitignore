@@ -5,6 +5,7 @@
 .venv1/
 venv/
 env/
+.idea/
 
 # =========================
 # Video Files (SubStudy Media)
