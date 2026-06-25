@@ -1,5 +1,4 @@
-# قالب التلخيص الذكي (Short & Detailed Summary)
-# يضمن هذا القالب استخراج الملخصات باللغة العربية وبصيغة JSON صارمة
+
 
 SUMMARY_PROMPT_TEMPLATE = """
 You are a highly precise audio-transcript analysis engine.
