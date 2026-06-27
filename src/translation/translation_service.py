@@ -1,6 +1,7 @@
 import re
 import httpx
 import logging
+import asyncio
 from typing import List, Dict, AsyncGenerator
 
 # استدعاء ملف الـ exceptions الخاص بك بالمللي
@@ -161,10 +162,20 @@ class TranslationService:
 
         async for chunk in self._chunk_blocks(original_blocks):
             chunk_srt = self._blocks_to_srt(chunk)
-            translated_chunk_srt = await self._call_llm(source_lang, target_lang, chunk_srt)
-
-            validated_chunk = self._validate_and_reconstruct(chunk, translated_chunk_srt)
-            final_blocks.extend(validated_chunk)
+            
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    translated_chunk_srt = await self._call_llm(source_lang, target_lang, chunk_srt)
+                    validated_chunk = self._validate_and_reconstruct(chunk, translated_chunk_srt)
+                    final_blocks.extend(validated_chunk)
+                    break
+                except (SRTParsingError, TimestampMismatchError) as e:
+                    if attempt == max_retries:
+                        logger.error(f"Failed to translate chunk after {max_retries} retries: {str(e)}")
+                        raise
+                    logger.warning(f"Chunk translation validation failed on attempt {attempt + 1}: {str(e)}. Retrying...")
+                    await asyncio.sleep(1.0)
 
         logger.info(f"Successfully translated {len(final_blocks)} SRT blocks.")
         return self._blocks_to_srt(final_blocks)

@@ -7,6 +7,15 @@ from .exceptions import TranscriptionError
 
 logger = logging.getLogger(__name__)
 
+def _sync_read_audio(audio_path: str):
+    audio_data, sample_rate = sf.read(audio_path, dtype='float32')
+    if len(audio_data.shape) > 1:
+        audio_data = audio_data.mean(axis=1)
+    return audio_data, sample_rate
+
+def _sync_resample_audio(audio_data, orig_sr, target_sr):
+    import librosa
+    return librosa.resample(audio_data, orig_sr=orig_sr, target_sr=target_sr)
 
 class STTService:
     def __init__(self, stt_client):
@@ -17,9 +26,7 @@ class STTService:
         logger.info(f"🎧 Starting STT processing for {audio_path} with {len(speech_segments)} segments.")
 
         try:
-            audio_data, sample_rate = sf.read(audio_path, dtype='float32')
-            if len(audio_data.shape) > 1:
-                audio_data = audio_data.mean(axis=1)
+            audio_data, sample_rate = await asyncio.to_thread(_sync_read_audio, audio_path)
         except Exception as e:
             logger.error(f"❌ Failed to read audio file {audio_path}: {e}")
             raise TranscriptionError(f"Audio read error: {e}") from e
@@ -28,8 +35,7 @@ class STTService:
         if sample_rate != TARGET_SAMPLE_RATE:
             logger.warning(f"⚠️ Resampling from {sample_rate}Hz to {TARGET_SAMPLE_RATE}Hz")
             try:
-                import librosa
-                audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=TARGET_SAMPLE_RATE)
+                audio_data = await asyncio.to_thread(_sync_resample_audio, audio_data, sample_rate, TARGET_SAMPLE_RATE)
                 sample_rate = TARGET_SAMPLE_RATE
             except ImportError:
                 logger.error("❌ librosa not installed. Install it with: pip install librosa")

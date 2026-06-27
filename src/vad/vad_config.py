@@ -2,7 +2,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SileroVADConfig:
-    REPO_OR_DIR: str = "snakers4/silero-vad"
+    REPO_OR_DIR: str = "models/silero-vad"
+    SOURCE: str = "local"
     MODEL_NAME: str = "silero_vad"
     FORCE_RELOAD: bool = False
 

@@ -30,11 +30,14 @@ class SileroVADClient:
                 # Route all low-level PyTorch/Hub warnings to standard logging instead of console pollution
                 logging.captureWarnings(True)
 
+                import os
+                local_dir = os.path.abspath(self.config.REPO_OR_DIR)
                 model, utils = torch.hub.load(
-                    repo_or_dir=self.config.REPO_OR_DIR,
+                    repo_or_dir=local_dir,
+                    source=self.config.SOURCE,
                     model=self.config.MODEL_NAME,
                     force_reload=self.config.FORCE_RELOAD,
-                    trust_repo=True  # Explicit safety flag for recent PyTorch versions
+                    trust_repo=True  # Trusting our own verified local clone
                 )
 
                 # Move model to the selected compute device and set to evaluation mode

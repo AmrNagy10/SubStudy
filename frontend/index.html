@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubStudy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="light">
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">SubStudy</h1>
+            <div class="theme-toggle">
+                <span class="theme-icon light-icon">☀</span>
+                <label class="switch">
+                    <input type="checkbox" id="theme-switch">
+                    <span class="slider round"></span>
+                </label>
+                <span class="theme-icon dark-icon">☽</span>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="state-idle">
+            
+            <!-- Error Card (Hidden by default) -->
+            <div id="error-card" class="error-card hidden">
+                <p id="error-message">An error occurred.</p>
+                <button id="btn-try-again" class="btn-secondary">Try again</button>
+            </div>
+
+            <!-- Upload & Controls Zone -->
+            <section id="upload-section" class="upload-section">
+                <div id="drop-zone" class="drop-zone">
+                    <p id="drop-zone-text">Drop video here, or click to browse</p>
+                    <input type="file" id="file-input" accept=".mp4,.mkv,.mov,.avi,.webm" hidden>
+                </div>
+
+                <div class="controls">
+                    <div class="control-group">
+                        <label for="source-lang">Source</label>
+                        <select id="source-lang">
+                            <option value="Auto">Auto</option>
+                            <option value="English">English</option>
+                            <option value="Arabic">Arabic</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="target-lang">Target</label>
+                        <select id="target-lang">
+                            <option value="Arabic">Arabic</option>
+                            <option value="English">English</option>
+                        </select>
+                    </div>
+                    <button id="btn-process" class="btn-primary" disabled>Process video</button>
+                </div>
+            </section>
+
+            <!-- Pipeline Tracker Zone -->
+            <section id="pipeline-section" class="pipeline-section hidden">
+                <h2 class="section-title">Pipeline</h2>
+                
+                <div class="tracker-container">
+                    <div class="tracker-track"></div>
+                    <div class="tracker-nodes">
+                        <!-- Stage 1 -->
+                        <div class="node-wrapper" data-stage="0">
+                            <div class="node"></div>
+                            <span class="node-label">validate</span>
+                        </div>
+                        <!-- Stage 2 -->
+                        <div class="node-wrapper" data-stage="1">
+                            <div class="node"></div>
+                            <span class="node-label">extract</span>
+                        </div>
+                        <!-- Stage 3 -->
+                        <div class="node-wrapper" data-stage="2">
+                            <div class="node"></div>
+                            <span class="node-label">vad</span>
+                        </div>
+                        <!-- Stage 4 -->
+                        <div class="node-wrapper" data-stage="3">
+                            <div class="node"></div>
+                            <span class="node-label">transcribe</span>
+                        </div>
+                        <!-- Stage 5 -->
+                        <div class="node-wrapper" data-stage="4">
+                            <div class="node"></div>
+                            <span class="node-label">export</span>
+                        </div>
+                        <!-- Stage 6 -->
+                        <div class="node-wrapper" data-stage="5">
+                            <div class="node"></div>
+                            <span class="node-label">translate</span>
+                        </div>
+                        <!-- Stage 7 -->
+                        <div class="node-wrapper" data-stage="6">
+                            <div class="node"></div>
+                            <span class="node-label">analyze</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-line">
+                    <span id="status-text">Starting pipeline...</span>
+                </div>
+            </section>
+
+            <!-- Results Dashboard -->
+            <section id="results-section" class="results-section hidden">
+                <h2 class="section-title">Results</h2>
+                <button id="btn-process-another" class="btn-secondary btn-restart">Process another video</button>
+
+                <!-- Transcript Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>Transcript</h3>
+                        <button class="btn-icon copy-btn" data-target="transcript-content" title="Copy to clipboard">📋</button>
+                    </div>
+                    <div class="panel-body">
+                        <textarea id="transcript-content" readonly></textarea>
+                    </div>
+                </div>
+
+                <!-- SRT Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>Subtitles (.srt)</h3>
+                        <div class="panel-actions">
+                            <button class="btn-icon copy-btn" data-target="srt-content" title="Copy to clipboard">📋</button>
+                            <button class="btn-icon download-btn" id="btn-download-srt" title="Download .srt">💾</button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <textarea id="srt-content" readonly></textarea>
+                    </div>
+                </div>
+
+                <!-- Summary Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>Summary</h3>
+                        <button class="btn-icon copy-btn" data-target="summary-content" title="Copy to clipboard">📋</button>
+                    </div>
+                    <div class="panel-body" id="summary-content">
+                        <!-- Summary content injected here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
