@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SubStudy — Local Pipeline</title>
+    <meta name="description" content="Process videos locally into transcripts, subtitles, and summaries. No cloud uploads, complete privacy." />
+
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        accent: '#7C5CFF',
+                        'accent-hover': '#6B4CE6',
+                        surface: '#111116',
+                        panel: '#18181F',
+                        border: '#26262E',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        glow: '0 0 20px rgba(124,92,255,0.45)',
+                        'glow-lg': '0 0 40px rgba(124,92,255,0.35)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel Standalone (JSX only, no TS generics needed for inline scripts) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            background-color: #0D0D12;
+            color: #F0F0F5;
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+        }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #26262E; border-radius: 99px; }
+
+        .glow-btn:not(:disabled):hover {
+            box-shadow: 0 0 30px rgba(124, 92, 255, 0.55);
+            transform: translateY(-1px);
+        }
+        .glow-btn {
+            transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+            box-shadow: 0 0 18px rgba(124, 92, 255, 0.35);
+        }
+        .glow-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .dropzone {
+            transition: border-color 0.2s ease, background-color 0.2s ease;
+        }
+        .dropzone.dragover {
+            border-color: #7C5CFF !important;
+            background-color: rgba(124, 92, 255, 0.06) !important;
+        }
+
+        select option { background: #18181F; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadein {
+            animation: fadeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
+        }
+        .badge-dot {
+            display: inline-block;
+            width: 6px; height: 6px;
+            border-radius: 99px;
+            background: #7C5CFF;
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useCallback } = React;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const API_KEY  = "change_me_in_production";
+const BASE_URL = "http://localhost:8000/api/v1";
+const ACCEPTED = ['.mp4', '.mkv', '.mov', '.avi', '.webm'];
+const MAX_MB   = 500;
+
+const SOURCE_LANGS = [
+    { value: 'auto',    label: 'Auto Detect' },
+    { value: 'en',      label: 'English'      },
+    { value: 'ar',      label: 'Arabic'       },
+    { value: 'fr',      label: 'French'       },
+    { value: 'de',      label: 'German'       },
+    { value: 'es',      label: 'Spanish'      },
+    { value: 'zh',      label: 'Chinese'      },
+    { value: 'ja',      label: 'Japanese'     },
+];
+const TARGET_LANGS = [
+    { value: 'en',      label: 'English'      },
+    { value: 'ar',      label: 'Arabic'       },
+    { value: 'fr',      label: 'French'       },
+    { value: 'de',      label: 'German'       },
+    { value: 'es',      label: 'Spanish'      },
+    { value: 'zh',      label: 'Chinese'      },
+    { value: 'ja',      label: 'Japanese'     },
+];
+
+// ─── Button ───────────────────────────────────────────────────────────────────
+function Button({ children, variant = 'primary', fullWidth, disabled, onClick, className = '' }) {
+    const base = `inline-flex items-center justify-center gap-2 font-semibold rounded-xl text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-[#0D0D12] ${fullWidth ? 'w-full' : ''} ${className}`;
+    const styles = {
+        primary:   `bg-accent text-white px-6 py-3 glow-btn`,
+        secondary: `bg-panel text-gray-300 border border-border px-6 py-3 hover:border-gray-500 hover:text-white`,
+        ghost:     `text-gray-400 px-3 py-2 hover:text-white hover:bg-panel rounded-lg`,
+    };
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            className={`${base} ${styles[variant]}`}
+        >
+            {children}
+        </button>
+    );
+}
+
+// ─── Select ───────────────────────────────────────────────────────────────────
+function SelectField({ id, label, value, onChange, options }) {
+    return (
+        <div className="flex flex-col gap-2">
+            <label htmlFor={id} className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
+                {label}
+            </label>
+            <div className="relative">
+                <select
+                    id={id}
+                    value={value}
+                    onChange={onChange}
+                    className="w-full appearance-none bg-[#0D0D12] border border-border text-gray-200 text-sm py-3 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-accent transition-colors cursor-pointer"
+                >
+                    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── UploadDropzone ───────────────────────────────────────────────────────────
+function UploadDropzone({ file, onFile, error }) {
+    const [dragover, setDragover] = useState(false);
+    const inputRef = useRef(null);
+
+    const validate = useCallback((f) => {
+        if (!f) return;
+        const ext = f.name.substring(f.name.lastIndexOf('.')).toLowerCase();
+        if (!ACCEPTED.includes(ext)) { onFile(null, 'Only video files are supported (.mp4, .mkv, .mov, .avi, .webm)'); return; }
+        if (f.size > MAX_MB * 1024 * 1024) { onFile(null, `File exceeds the ${MAX_MB} MB limit.`); return; }
+        onFile(f, null);
+    }, [onFile]);
+
+    const onDrop = (e) => {
+        e.preventDefault(); setDragover(false);
+        if (e.dataTransfer.files?.[0]) validate(e.dataTransfer.files[0]);
+    };
+
+    return (
+        <div
+            className={`dropzone w-full rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center p-10 cursor-pointer select-none ${dragover ? 'dragover' : 'hover:border-gray-600'} ${error ? 'border-red-500/60 bg-red-500/5' : ''}`}
+            style={{ minHeight: 220 }}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragover(true); }}
+            onDragLeave={e => { e.preventDefault(); setDragover(false); }}
+            onDrop={onDrop}
+        >
+            <input
+                ref={inputRef}
+                type="file"
+                accept={ACCEPTED.join(',')}
+                className="hidden"
+                onChange={e => validate(e.target.files?.[0])}
+            />
+
+            {file ? (
+                // File selected state
+                <div className="flex flex-col items-center gap-3 text-center animate-fadein">
+                    <div className="w-14 h-14 rounded-2xl bg-accent/15 flex items-center justify-center">
+                        <svg className="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p className="font-semibold text-white text-base">{file.name}</p>
+                        <p className="text-sm text-gray-500 mt-1">{(file.size / (1024 * 1024)).toFixed(1)} MB</p>
+                    </div>
+                    <span className="text-xs text-gray-600 mt-1">Click or drop to replace</span>
+                </div>
+            ) : error ? (
+                // Error state
+                <div className="flex flex-col items-center gap-3 text-center animate-fadein">
+                    <div className="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center">
+                        <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                        </svg>
+                    </div>
+                    <p className="text-red-400 font-medium text-sm max-w-xs">{error}</p>
+                    <span className="text-xs text-gray-600">Click to try again</span>
+                </div>
+            ) : (
+                // Default idle state
+                <div className="flex flex-col items-center gap-4 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-panel border border-border flex items-center justify-center">
+                        <svg className="w-7 h-7 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p className="text-gray-300 font-medium">
+                            Drop a video here or{' '}
+                            <span className="text-accent font-semibold">click to browse</span>
+                        </p>
+                        <p className="text-xs text-gray-600 mt-2">MP4, MKV, MOV, AVI, WebM · up to {MAX_MB} MB</p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+function Sidebar({ onNewJob }) {
+    return (
+        <aside className="w-60 shrink-0 h-screen bg-panel border-r border-border flex flex-col p-5 gap-6">
+            {/* Logo */}
+            <div className="flex items-center gap-2.5 pt-1">
+                <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center shadow-glow shrink-0">
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                    </svg>
+                </div>
+                <span className="text-white font-bold text-lg tracking-tight">SubStudy</span>
+            </div>
+
+            {/* New Job button */}
+            <Button variant="primary" fullWidth onClick={onNewJob}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M12 4v16m8-8H4"/>
+                </svg>
+                New Job
+            </Button>
+
+            {/* Recent */}
+            <div className="flex-1 overflow-y-auto">
+                <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-4">Recent</p>
+                {/* Empty state */}
+                <div className="flex flex-col items-center gap-3 py-10 opacity-60">
+                    <svg className="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125"/>
+                    </svg>
+                    <p className="text-xs text-gray-600 font-medium">No jobs yet</p>
+                </div>
+            </div>
+
+            {/* Footer badge */}
+            <div className="text-[10px] text-gray-700 font-mono">v1.0 · local pipeline</div>
+        </aside>
+    );
+}
+
+// ─── Upload View ──────────────────────────────────────────────────────────────
+function UploadView({ onSubmit }) {
+    const [file, setFile]           = useState(null);
+    const [fileError, setFileError] = useState(null);
+    const [sourceLang, setSource]   = useState('auto');
+    const [targetLang, setTarget]   = useState('en');
+
+    const handleFile = useCallback((f, err) => {
+        setFile(f);
+        setFileError(err);
+    }, []);
+
+    return (
+        <div className="flex-1 overflow-y-auto">
+            {/* Glow blob */}
+            <div className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/4 w-[700px] h-[400px] bg-accent/10 blur-[120px] rounded-full" />
+
+            <div className="max-w-3xl mx-auto px-10 py-16 relative z-10 animate-fadein">
+
+                {/* Hero */}
+                <div className="mb-12">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-panel text-[11px] font-semibold text-gray-500 uppercase tracking-widest mb-7">
+                        <span className="badge-dot"></span>
+                        V1 · Local Pipeline
+                    </div>
+
+                    <h1 className="text-[3.2rem] font-bold leading-[1.15] tracking-tight text-white mb-5">
+                        Turn any video into{' '}
+                        <span className="bg-gradient-to-r from-accent to-[#B79EFF] bg-clip-text text-transparent">
+                            transcripts,&nbsp;subtitles,<br />and summaries.
+                        </span>
+                    </h1>
+
+                    <p className="text-gray-400 text-base leading-relaxed max-w-xl">
+                        A 7-stage ML pipeline that runs entirely on your machine.
+                        No cloud uploads, complete privacy, state-of-the-art models.
+                    </p>
+                </div>
+
+                {/* Upload card */}
+                <div className="bg-panel border border-border rounded-2xl p-8 shadow-xl">
+                    <div className="mb-6">
+                        <h2 className="text-xl font-semibold text-white">Upload a video</h2>
+                        <p className="text-sm text-gray-500 mt-1">Supports MP4, MKV, MOV, AVI and WebM. Maximum {MAX_MB} MB.</p>
+                    </div>
+
+                    <UploadDropzone file={file} onFile={handleFile} error={fileError} />
+
+                    <div className="mt-6 flex flex-col sm:flex-row gap-5 items-end">
+                        <div className="flex-1 grid grid-cols-2 gap-4">
+                            <SelectField
+                                id="source-lang"
+                                label="Source Language"
+                                value={sourceLang}
+                                onChange={e => setSource(e.target.value)}
+                                options={SOURCE_LANGS}
+                            />
+                            <SelectField
+                                id="target-lang"
+                                label="Target Language"
+                                value={targetLang}
+                                onChange={e => setTarget(e.target.value)}
+                                options={TARGET_LANGS}
+                            />
+                        </div>
+                        <Button
+                            variant="primary"
+                            disabled={!file}
+                            onClick={() => file && onSubmit(file, sourceLang, targetLang)}
+                            className="px-8 py-3 whitespace-nowrap"
+                        >
+                            Start Processing
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+                            </svg>
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Processing View ──────────────────────────────────────────────────────────
+const STAGES = [
+    'Transcription',
+    'Translation',
+    'Subtitle Generation',
+    'Summarization',
+    'Keyword Extraction',
+    'Sentiment Analysis',
+    'Export',
+];
+
+function ProcessingView({ progress, onReset }) {
+    const stageIndex = Math.floor((progress / 100) * STAGES.length);
+    return (
+        <div className="flex-1 flex items-center justify-center p-10 animate-fadein">
+            <div className="bg-panel border border-border rounded-2xl p-10 w-full max-w-xl shadow-xl">
+                <h2 className="text-2xl font-bold text-white mb-2">Processing your video…</h2>
+                <p className="text-gray-500 text-sm mb-8">This may take a few minutes depending on the file length.</p>
+
+                {/* Overall progress bar */}
+                <div className="w-full h-2 bg-[#0D0D12] rounded-full overflow-hidden mb-6">
+                    <div
+                        className="h-full bg-gradient-to-r from-accent to-[#B79EFF] rounded-full transition-all duration-500"
+                        style={{ width: `${progress}%` }}
+                    />
+                </div>
+
+                {/* Stages */}
+                <div className="flex flex-col gap-3 mb-8">
+                    {STAGES.map((stage, i) => {
+                        const done    = i < stageIndex;
+                        const active  = i === stageIndex;
+                        return (
+                            <div key={stage} className={`flex items-center gap-3 transition-opacity duration-300 ${i > stageIndex ? 'opacity-30' : ''}`}>
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${done ? 'bg-accent' : active ? 'border-2 border-accent' : 'border border-border bg-[#0D0D12]'}`}>
+                                    {done && (
+                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4.5 12.75l6 6 9-13.5"/>
+                                        </svg>
+                                    )}
+                                    {active && <span className="badge-dot" style={{width:8,height:8}}/>}
+                                </div>
+                                <span className={`text-sm ${done ? 'text-gray-400 line-through' : active ? 'text-white font-semibold' : 'text-gray-600'}`}>{stage}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <Button variant="ghost" onClick={onReset} className="text-sm text-gray-600 hover:text-red-400">
+                    Cancel job
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+// ─── Error View ───────────────────────────────────────────────────────────────
+function ErrorView({ message, onReset }) {
+    return (
+        <div className="flex-1 flex items-center justify-center p-10 animate-fadein">
+            <div className="bg-panel border border-red-500/30 rounded-2xl p-10 w-full max-w-md shadow-xl text-center">
+                <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-5">
+                    <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                    </svg>
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2">Something went wrong</h2>
+                <p className="text-sm text-gray-400 mb-8 leading-relaxed">{message}</p>
+                <Button variant="primary" onClick={onReset}>Try Again</Button>
+            </div>
+        </div>
+    );
+}
+
+// ─── Done View ────────────────────────────────────────────────────────────────
+function DoneView({ result, onReset }) {
+    return (
+        <div className="flex-1 overflow-y-auto p-10 animate-fadein">
+            <div className="max-w-2xl mx-auto">
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="w-10 h-10 rounded-full bg-accent/15 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M4.5 12.75l6 6 9-13.5"/>
+                        </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">Processing complete</h2>
+                </div>
+
+                {result && Object.entries(result).map(([key, value]) => (
+                    <div key={key} className="bg-panel border border-border rounded-xl p-5 mb-4">
+                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">{key.replace(/_/g, ' ')}</p>
+                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</p>
+                    </div>
+                ))}
+
+                <div className="mt-8">
+                    <Button variant="primary" onClick={onReset}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Process Another Video
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── API Layer ────────────────────────────────────────────────────────────────
+async function startJob(file, sourceLang, targetLang) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('source_lang', sourceLang);
+    form.append('target_lang', targetLang);
+
+    const res = await fetch(`${BASE_URL}/process`, {
+        method: 'POST',
+        headers: { 'X-API-Key': API_KEY },
+        body: form,
+    });
+
+    if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail || `Server error ${res.status}`);
+    }
+    return (await res.json()).job_id;
+}
+
+async function pollJob(jobId) {
+    const res = await fetch(`${BASE_URL}/status/${jobId}`, {
+        headers: { 'X-API-Key': API_KEY },
+    });
+    if (!res.ok) throw new Error(`Poll error ${res.status}`);
+    return res.json();
+}
+
+// ─── App Root ─────────────────────────────────────────────────────────────────
+function App() {
+    // appState: 'idle' | 'uploading' | 'processing' | 'done' | 'error'
+    const [appState,  setAppState]  = useState('idle');
+    const [progress,  setProgress]  = useState(0);
+    const [result,    setResult]    = useState(null);
+    const [errMsg,    setErrMsg]    = useState('');
+    const pollRef = useRef(null);
+
+    // Restore in-flight job from localStorage
+    React.useEffect(() => {
+        const saved = localStorage.getItem('substudy_job_id');
+        if (saved) {
+            setAppState('processing');
+            beginPolling(saved);
+        }
+    }, []);
+
+    const beginPolling = (jobId) => {
+        const MAX_MS = 10 * 60 * 1000;
+        const start  = Date.now();
+
+        const tick = async () => {
+            if (Date.now() - start > MAX_MS) {
+                localStorage.removeItem('substudy_job_id');
+                setErrMsg('Processing timed out. Check the backend logs.');
+                setAppState('error');
+                return;
+            }
+            try {
+                const data = await pollJob(jobId);
+                setProgress(data.progress ?? 0);
+                if (data.status === 'completed') {
+                    localStorage.removeItem('substudy_job_id');
+                    setResult(data.result);
+                    setAppState('done');
+                } else if (data.status === 'failed') {
+                    localStorage.removeItem('substudy_job_id');
+                    setErrMsg(data.error_message || 'An unknown error occurred.');
+                    setAppState('error');
+                } else {
+                    pollRef.current = setTimeout(tick, 2000);
+                }
+            } catch (e) {
+                pollRef.current = setTimeout(tick, 4000); // retry on network glitch
+            }
+        };
+        tick();
+    };
+
+    const handleSubmit = async (file, sourceLang, targetLang) => {
+        setAppState('uploading');
+        try {
+            const jobId = await startJob(file, sourceLang, targetLang);
+            localStorage.setItem('substudy_job_id', jobId);
+            setAppState('processing');
+            setProgress(0);
+            beginPolling(jobId);
+        } catch (e) {
+            setErrMsg(e.message || "Couldn't reach the server. Is the backend running on port 8000?");
+            setAppState('error');
+        }
+    };
+
+    const handleReset = () => {
+        clearTimeout(pollRef.current);
+        localStorage.removeItem('substudy_job_id');
+        setProgress(0);
+        setResult(null);
+        setErrMsg('');
+        setAppState('idle');
+    };
+
+    const mainContent = () => {
+        switch (appState) {
+            case 'uploading':
+            case 'idle':
+                return <UploadView onSubmit={handleSubmit} />;
+            case 'processing':
+                return <ProcessingView progress={progress} onReset={handleReset} />;
+            case 'done':
+                return <DoneView result={result} onReset={handleReset} />;
+            case 'error':
+                return <ErrorView message={errMsg} onReset={handleReset} />;
+            default:
+                return <UploadView onSubmit={handleSubmit} />;
+        }
+    };
+
+    return (
+        <div className="flex h-screen overflow-hidden">
+            <Sidebar onNewJob={handleReset} />
+            {mainContent()}
+        </div>
+    );
+}
+
+// ─── Mount ────────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

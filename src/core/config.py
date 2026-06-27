@@ -7,7 +7,12 @@ class Settings(BaseSettings):
     APP_NAME: str = "SubStudy"
     API_V1_STR: str = "/api/v1"
     API_KEY: str = "change_me_in_production"
-    CORS_ORIGINS: list = ["http://localhost:3000", "http://127.0.0.1:3000", "http://0.0.0.0:3000", "null"]
+    CORS_ORIGINS: list = [
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:4000", "http://127.0.0.1:4000",
+        "http://0.0.0.0:3000", "http://0.0.0.0:4000",
+        "null"
+    ]
 
     # Storage Configuration
     TEMP_DIR: str = "tmp_uploads"

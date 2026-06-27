@@ -25,13 +25,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for frontend interactions
+# CORS middleware — wildcard for local development
+# ⚠️ Restrict allow_origins before deploying to production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(pipeline_router, prefix=settings.API_V1_STR, tags=["Pipeline"])
