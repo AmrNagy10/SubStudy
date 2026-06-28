@@ -23,6 +23,11 @@ from src.analytics.analyzer_service import AIAnalyzerService
 logger = logging.getLogger(__name__)
 
 
+async def _is_canceled(job_id: UUID) -> bool:
+    job = await data_store.get_job(job_id)
+    return True if (job and job.get('status') == 'canceled') else False
+
+
 async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, target_lang: str):
     """
     Sequential execution pipeline traversing Stages 1 to 7 safely.
@@ -40,6 +45,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 1: Deep Metadata Validation (ffprobe)
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=5.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stage 1; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stage 1: Running deep structural validation...")
 
         validator = VideoValidator(file_path)
@@ -51,6 +59,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 2: Audio Demuxing & Extraction (16kHz Mono WAV)
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=15.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stage 2; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stage 2: Extracting standard 16kHz mono audio payload...")
 
         ffmpeg_client = AsyncFFmpegClient()
@@ -67,6 +78,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 3: Voice Activity Detection (Silero VAD)
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=35.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stage 3; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stage 3: Segmenting active voice intervals via Silero VAD...")
 
         vad_config = SileroVADConfig()
@@ -83,6 +97,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 4: Automated Speech Recognition (faster-whisper)
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=55.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stage 4; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stage 4: Transcribing segments using faster-whisper core runtime...")
 
         stt_client = STTClient()
@@ -104,6 +121,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 5: SRT Export and Translation
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=75.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stage 5; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stage 5: Exporting original subtitles and translating...")
 
         exporter = SRTExporter()
@@ -148,6 +168,9 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
         # STAGE 6 & 7: Semantic Analysis (Summary)
         # ==========================================
         await data_store.update_job(job_id, status="processing", progress=90.0)
+        if await _is_canceled(job_id):
+            logger.info(f"[{job_id}] Canceled before Stages 6-7; aborting pipeline.")
+            return
         logger.info(f"[{job_id}] Stages 6-7: Compiling semantic summaries...")
 
         full_transcript_text = " ".join([seg["text"] for seg in raw_transcript_data])
@@ -179,12 +202,16 @@ async def run_pipeline_job(job_id: UUID, file_path: str, source_lang: str, targe
 
     except Exception as error:
         logger.error(f"❌ Core processing failure on job {job_id}: {str(error)}", exc_info=True)
-        await data_store.update_job(
-            job_id,
-            status="failed",
-            progress=100.0,
-            error_message=f"Pipeline processing halted: {str(error)}"
-        )
+        current = await data_store.get_job(job_id)
+        if current and current.get('status') == 'canceled':
+            logger.info(f"Job {job_id} was canceled by user. Skipping failure update.")
+        else:
+            await data_store.update_job(
+                job_id,
+                status="failed",
+                progress=100.0,
+                error_message=f"Pipeline processing halted: {str(error)}"
+            )
 
     finally:
         # ==========================================

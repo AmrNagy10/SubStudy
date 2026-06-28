@@ -572,7 +572,20 @@ function App() {
         }
     };
 
-    const handleReset = () => {
+    const handleReset = async () => {
+        // attempt to cancel on the backend if a job is being tracked
+        const saved = localStorage.getItem('substudy_job_id');
+        if (saved) {
+            try {
+                await fetch(`${BASE_URL}/cancel/${saved}`, {
+                    method: 'POST',
+                    headers: { 'X-API-Key': API_KEY }
+                });
+            } catch (e) {
+                // ignore network errors; proceed to reset UI
+            }
+        }
+
         clearTimeout(pollRef.current);
         localStorage.removeItem('substudy_job_id');
         setProgress(0);

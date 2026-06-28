@@ -76,7 +76,7 @@ const App: React.FC = () => {
                 const data = await response.json();
 
                 // تحديث المهمة المؤقتة بالبيانات الحقيقية القادمة من السيرفر
-                setJobs(prev => prev.map(j => j.job_id === "Sending?" ? { ...data, source_lang: sourceLang, target_lang: targetLang } : j));
+                setJobs(prev => prev.map(j => j.job_id === "Sending..." ? { ...data, source_lang: sourceLang, target_lang: targetLang } : j));
 
                 // حفظ في الـ Storage بشكل آمن
                 try {

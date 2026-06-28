@@ -88,3 +88,16 @@ async def get_job_status(job_id: uuid.UUID):
         error_message=job["error_message"],
         result=job["result"]
     )
+
+
+@router.post("/cancel/{job_id}")
+async def cancel_job(job_id: uuid.UUID):
+    """
+    Cancel a running job. Marks the job state as 'canceled' so background workers can detect it.
+    """
+    job = await data_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Target task pipeline '{job_id}' does not exist.")
+
+    await data_store.update_job(job_id, status="canceled", progress=100.0, error_message="Canceled by user")
+    return {"detail": "canceled"}
