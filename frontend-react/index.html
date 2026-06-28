@@ -115,22 +115,12 @@ const MAX_MB   = 500;
 
 const SOURCE_LANGS = [
     { value: 'auto',    label: 'Auto Detect' },
-    { value: 'en',      label: 'English'      },
-    { value: 'ar',      label: 'Arabic'       },
-    { value: 'fr',      label: 'French'       },
-    { value: 'de',      label: 'German'       },
-    { value: 'es',      label: 'Spanish'      },
-    { value: 'zh',      label: 'Chinese'      },
-    { value: 'ja',      label: 'Japanese'     },
+    { value: 'English',      label: 'English'      },
+    { value: 'Arabic',      label: 'Arabic'       },
 ];
 const TARGET_LANGS = [
-    { value: 'en',      label: 'English'      },
-    { value: 'ar',      label: 'Arabic'       },
-    { value: 'fr',      label: 'French'       },
-    { value: 'de',      label: 'German'       },
-    { value: 'es',      label: 'Spanish'      },
-    { value: 'zh',      label: 'Chinese'      },
-    { value: 'ja',      label: 'Japanese'     },
+    { value: 'English',      label: 'English'      },
+    { value: 'Arabic',      label: 'Arabic'       },
 ];
 
 // ─── Button ───────────────────────────────────────────────────────────────────
@@ -582,7 +572,20 @@ function App() {
         }
     };
 
-    const handleReset = () => {
+    const handleReset = async () => {
+        // attempt to cancel on the backend if a job is being tracked
+        const saved = localStorage.getItem('substudy_job_id');
+        if (saved) {
+            try {
+                await fetch(`${BASE_URL}/cancel/${saved}`, {
+                    method: 'POST',
+                    headers: { 'X-API-Key': API_KEY }
+                });
+            } catch (e) {
+                // ignore network errors; proceed to reset UI
+            }
+        }
+
         clearTimeout(pollRef.current);
         localStorage.removeItem('substudy_job_id');
         setProgress(0);
