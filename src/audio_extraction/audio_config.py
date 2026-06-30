@@ -1,11 +1,7 @@
-import os
+from src.core.config import settings
 
-OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "wav")
-
-AUDIO_CHANNELS = int(os.getenv("AUDIO_CHANNELS", "1"))
-
-TARGET_RATE = int(os.getenv("TARGET_RATE", "16000"))
-
-FFMPEG_BINARY_PATH = os.getenv("FFMPEG_BINARY_PATH", "ffmpeg")
-
-PROCESS_TIMEOUT_SECONDS = int(os.getenv("PROCESS_TIMEOUT_SECONDS", "300"))
+OUTPUT_FORMAT = settings.OUTPUT_FORMAT
+AUDIO_CHANNELS = settings.AUDIO_CHANNELS
+TARGET_RATE = settings.TARGET_RATE
+FFMPEG_BINARY_PATH = settings.FFMPEG_BINARY_PATH
+PROCESS_TIMEOUT_SECONDS = settings.PROCESS_TIMEOUT_SECONDS

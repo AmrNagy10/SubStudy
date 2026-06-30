@@ -1,0 +1,7 @@
+substudy_jobs.db
+tmp_uploads/
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/

@@ -1,13 +1,9 @@
-import os
+from src.core.config import settings
 
-MODEL_SIZE = os.getenv("MODEL_SIZE", "base")
-
-DEVICE = os.getenv("DEVICE", "cpu")
-
-COMPUTE_TYPE = os.getenv("COMPUTE_TYPE", "int8")
-
-BEAM_SIZE = int(os.getenv("STT_BEAM_SIZE", "5"))
-
-MAX_CONCURRENT_TRANSCRIPTIONS = int(os.getenv("MAX_CONCURRENT_TRANSCRIPTIONS", "1"))
+MODEL_SIZE = settings.MODEL_SIZE
+DEVICE = settings.DEVICE
+COMPUTE_TYPE = settings.COMPUTE_TYPE
+BEAM_SIZE = settings.STT_BEAM_SIZE
+MAX_CONCURRENT_TRANSCRIPTIONS = settings.MAX_CONCURRENT_TRANSCRIPTIONS
 
 SUPPORTED_LANGUAGES = ["ar", "en"]

@@ -11,7 +11,10 @@ class PipelineInitResponse(BaseModel):
 
 class JobStatusResponse(BaseModel):
     job_id: UUID
-    status: str  # processing, completed, failed
+    status: str  # processing, completed, failed, canceled
     progress: float
     error_message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    source_lang: Optional[str] = None
+    target_lang: Optional[str] = None
+    file_name: Optional[str] = None

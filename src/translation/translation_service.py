@@ -1,10 +1,10 @@
 import re
-import httpx
 import logging
 import asyncio
 from typing import List, Dict, AsyncGenerator
 
-# استدعاء ملف الـ exceptions الخاص بك بالمللي
+from src.core.config import settings
+from src.llm.client import llm_client, LLMError
 from .exceptions import TranslationAPIError, SRTParsingError, TimestampMismatchError
 from .prompts import build_translation_prompt
 
@@ -12,44 +12,27 @@ logger = logging.getLogger(__name__)
 
 
 class TranslationService:
-    """
-    Service responsible for automated AI translation of SRT files.
-    Fully optimized to work with standard positional exception signatures.
-    """
+    """Automated AI translation of SRT files with shared rate-limited LLM client."""
 
-    def __init__(self, api_base_url: str, api_key: str, model: str, chunk_size: int = 50):
-        self.api_base_url = api_base_url.rstrip('/')
-        self.api_key = api_key
-        self.model = model
-        self.chunk_size = chunk_size
-
-        # Connection Pooling (Keep-Alive) متوافق مع الـ Architecture للمشروع
-        self.client = httpx.AsyncClient(
-            base_url=self.api_base_url,
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            timeout=60.0
-        )
+    def __init__(self, chunk_size: int | None = None):
+        self.chunk_size = chunk_size if chunk_size is not None else settings.TRANSLATION_CHUNK_SIZE
 
     async def close(self) -> None:
-        """Closes the HTTP connection pool securely."""
-        await self.client.aclose()
-        logger.info("TranslationService HTTP client closed securely.")
+        """No-op — shared LLM client lifecycle is managed by the application."""
+        pass
 
     def _parse_srt(self, srt_content: str) -> List[Dict[str, str]]:
-        """Parses raw SRT string into a list of block dictionaries."""
         blocks = []
 
-        # ✅ خطوة دفاعية: إزالة علامات الماركداون (```srt أو ```) إذا قام الـ LLM بإضافتها عن طريق الخطأ
         srt_content = srt_content.strip()
         if srt_content.startswith("```"):
             lines = srt_content.splitlines()
             if lines[0].startswith("```"):
-                lines.pop(0)  # حذف السطر الأول المعتوي على ```
+                lines.pop(0)
             if lines and lines[-1].startswith("```"):
-                lines.pop()  # حذف السطر الأخير المحتوي على ```
+                lines.pop()
             srt_content = "\n".join(lines).strip()
 
-        # تكملة الكود القديم كما هو بدون أي تغيير
         srt_content = srt_content.replace('\r\n', '\n').replace('\r', '\n')
         raw_blocks = re.split(r'\n\s*\n', srt_content.strip())
 
@@ -65,11 +48,7 @@ class TranslationService:
             if '-->' not in timestamp:
                 raise SRTParsingError(f"Invalid timestamp format detected at block {block_id}: {timestamp}")
 
-            blocks.append({
-                'id': block_id,
-                'timestamp': timestamp,
-                'text': text
-            })
+            blocks.append({'id': block_id, 'timestamp': timestamp, 'text': text})
 
         if not blocks:
             raise SRTParsingError("Validation Failed: No valid SRT blocks found in the input.")
@@ -77,53 +56,32 @@ class TranslationService:
         return blocks
 
     async def _chunk_blocks(self, blocks: List[Dict[str, str]]) -> AsyncGenerator[List[Dict[str, str]], None]:
-        """Splits parsed blocks into optimal contextual chunks."""
         for i in range(0, len(blocks), self.chunk_size):
             yield blocks[i: i + self.chunk_size]
 
     def _blocks_to_srt(self, blocks: List[Dict[str, str]]) -> str:
-        """Reconstructs standard dict blocks back to raw SRT string."""
         return "\n\n".join(
             f"{block['id']}\n{block['timestamp']}\n{block['text']}"
             for block in blocks
         ).strip()
 
     async def _call_llm(self, source_lang: str, target_lang: str, srt_chunk: str) -> str:
-        """Calls the LLM API asynchronously using the corrected GitHub Models path."""
         prompt = build_translation_prompt(source_lang, target_lang, srt_chunk)
-
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a specialized SRT translator. Preserve IDs and timestamps flawlessly."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.2
-        }
-
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a specialized SRT translator. Preserve IDs and timestamps flawlessly.",
+            },
+            {"role": "user", "content": prompt},
+        ]
         try:
-            # مسار الـ Endpoint الصحيح لـ GitHub Models
-            response = await self.client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            return await llm_client.chat(messages, temperature=0.2, json_mode=False)
+        except LLMError as exc:
+            raise TranslationAPIError(str(exc)) from exc
 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"LLM API HTTP Error: {e.response.status_code}")
-            # ✅ متوافق تماماً: نص فقط بدون keyword arguments
-            raise TranslationAPIError(f"LLM API returned HTTP error {e.response.status_code}: {e.response.text}")
-        except httpx.RequestError as e:
-            logger.error(f"Network error calling LLM: {str(e)}")
-            raise TranslationAPIError(f"Network Connection Error: {str(e)}")
-        except (KeyError, IndexError):
-            raise TranslationAPIError("Malformed JSON structure received from LLM API.")
-
-    def _validate_and_reconstruct(self, original_blocks: List[Dict[str, str]], translated_srt: str) -> List[
-        Dict[str, str]]:
-        """Strictly compares the LLM output against original data for absolute integrity."""
+    def _validate_and_reconstruct(
+        self, original_blocks: List[Dict[str, str]], translated_srt: str
+    ) -> List[Dict[str, str]]:
         try:
             translated_blocks = self._parse_srt(translated_srt)
         except SRTParsingError as e:
@@ -139,7 +97,6 @@ class TranslationService:
             if orig['id'] != trans['id']:
                 logger.warning(f"ID mismatch auto-corrected. Expected {orig['id']}, got {trans['id']}")
 
-            # ✅ متوافق تماماً: تمرير تفاصيل الخطأ داخل الـ String نفسه لمنع الـ TypeError
             if orig['timestamp'] != trans['timestamp']:
                 raise TimestampMismatchError(
                     f"Timestamp mismatch at block {orig['id']}. Expected: '{orig['timestamp']}', Got: '{trans['timestamp']}'"
@@ -148,13 +105,12 @@ class TranslationService:
             validated_blocks.append({
                 'id': orig['id'],
                 'timestamp': orig['timestamp'],
-                'text': trans['text']
+                'text': trans['text'],
             })
 
         return validated_blocks
 
     async def translate_srt(self, srt_content: str, source_lang: str, target_lang: str) -> str:
-        """Main entry point for translation pipeline."""
         logger.info(f"Initiating translation flow: {source_lang} -> {target_lang}")
 
         original_blocks = self._parse_srt(srt_content)
@@ -162,7 +118,7 @@ class TranslationService:
 
         async for chunk in self._chunk_blocks(original_blocks):
             chunk_srt = self._blocks_to_srt(chunk)
-            
+
             max_retries = 2
             for attempt in range(max_retries + 1):
                 try:
@@ -174,7 +130,9 @@ class TranslationService:
                     if attempt == max_retries:
                         logger.error(f"Failed to translate chunk after {max_retries} retries: {str(e)}")
                         raise
-                    logger.warning(f"Chunk translation validation failed on attempt {attempt + 1}: {str(e)}. Retrying...")
+                    logger.warning(
+                        f"Chunk translation validation failed on attempt {attempt + 1}: {str(e)}. Retrying..."
+                    )
                     await asyncio.sleep(1.0)
 
         logger.info(f"Successfully translated {len(final_blocks)} SRT blocks.")

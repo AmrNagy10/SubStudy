@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SubStudy — Local Pipeline</title>
-    <meta name="description" content="Process videos locally into transcripts, subtitles, and summaries. No cloud uploads, complete privacy." />
+    <meta name="description" content="Process videos locally into transcripts, subtitles, and summaries. Video stays on your machine." />
 
     <!-- Tailwind CSS Play CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -108,15 +108,18 @@
 const { useState, useRef, useCallback } = React;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const API_KEY  = "change_me_in_production";
-const BASE_URL = "http://localhost:8000/api/v1";
+const BASE_URL = "/api/v1";
 const ACCEPTED = ['.mp4', '.mkv', '.mov', '.avi', '.webm'];
 const MAX_MB   = 500;
 
+const JOBS_KEY   = 'substudy_jobs';
+const ACTIVE_KEY = 'substudy_active_job_id';
+const JOBS_META_KEY = 'substudy_jobs_meta';
+
 const SOURCE_LANGS = [
-    { value: 'auto',    label: 'Auto Detect' },
-    { value: 'English',      label: 'English'      },
-    { value: 'Arabic',      label: 'Arabic'       },
+    { value: 'Auto',    label: 'Auto Detect' },
+    { value: 'English', label: 'English'     },
+    { value: 'Arabic',  label: 'Arabic'      },
 ];
 const TARGET_LANGS = [
     { value: 'English',      label: 'English'      },
@@ -249,11 +252,24 @@ function UploadDropzone({ file, onFile, error }) {
     );
 }
 
+function jobStatusColor(status) {
+    switch (status) {
+        case 'completed': return 'text-green-400';
+        case 'failed':    return 'text-red-400';
+        case 'canceled':  return 'text-gray-500';
+        default:          return 'text-accent';
+    }
+}
+
+function jobStatusLabel(status) {
+    if (!status) return 'Processing';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-function Sidebar({ onNewJob }) {
+function Sidebar({ jobs, activeJobId, onNewJob, onSelectJob, onDeleteJob }) {
     return (
         <aside className="w-60 shrink-0 h-screen bg-panel border-r border-border flex flex-col p-5 gap-6">
-            {/* Logo */}
             <div className="flex items-center gap-2.5 pt-1">
                 <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center shadow-glow shrink-0">
                     <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,7 +279,6 @@ function Sidebar({ onNewJob }) {
                 <span className="text-white font-bold text-lg tracking-tight">SubStudy</span>
             </div>
 
-            {/* New Job button */}
             <Button variant="primary" fullWidth onClick={onNewJob}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M12 4v16m8-8H4"/>
@@ -271,19 +286,63 @@ function Sidebar({ onNewJob }) {
                 New Job
             </Button>
 
-            {/* Recent */}
             <div className="flex-1 overflow-y-auto">
                 <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-4">Recent</p>
-                {/* Empty state */}
-                <div className="flex flex-col items-center gap-3 py-10 opacity-60">
-                    <svg className="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125"/>
-                    </svg>
-                    <p className="text-xs text-gray-600 font-medium">No jobs yet</p>
-                </div>
+                {jobs.length === 0 ? (
+                    <div className="flex flex-col items-center gap-3 py-10 opacity-60">
+                        <svg className="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125"/>
+                        </svg>
+                        <p className="text-xs text-gray-600 font-medium">No jobs yet</p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {jobs.map(job => {
+                            const id = String(job.job_id);
+                            const isActive = id === activeJobId;
+                            const isRunning = job.status === 'processing';
+                            return (
+                                <div
+                                    key={id}
+                                    className={`group relative rounded-xl border transition-colors ${isActive ? 'border-accent/60 bg-accent/10' : 'border-border bg-[#0D0D12] hover:border-gray-600'}`}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => onSelectJob(id)}
+                                        className="w-full text-left p-3 pr-9"
+                                    >
+                                        <p className="text-xs text-gray-200 font-medium truncate mb-1">
+                                            {job.fileName || `${id.slice(0, 8)}…`}
+                                        </p>
+                                        <div className="flex justify-between items-center gap-2">
+                                        <span className="text-[10px] text-gray-600 truncate">
+                                            {(job.source_lang && job.target_lang)
+                                                ? `${job.source_lang} → ${job.target_lang}`
+                                                : '—'}
+                                        </span>
+                                            <span className={`text-[10px] font-semibold shrink-0 ${jobStatusColor(job.status)} ${isRunning ? 'animate-pulse' : ''}`}>
+                                                {jobStatusLabel(job.status)}
+                                            </span>
+                                        </div>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        title={isRunning ? 'Cancel the job before deleting' : 'Delete job'}
+                                        disabled={isRunning}
+                                        onClick={(e) => { e.stopPropagation(); onDeleteJob(id); }}
+                                        className={`absolute top-2.5 right-2 p-1 rounded-md transition-colors ${isRunning ? 'opacity-30 cursor-not-allowed text-gray-600' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/15'}`}
+                                    >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
-            {/* Footer badge */}
             <div className="text-[10px] text-gray-700 font-mono">v1.0 · local pipeline</div>
         </aside>
     );
@@ -293,8 +352,8 @@ function Sidebar({ onNewJob }) {
 function UploadView({ onSubmit }) {
     const [file, setFile]           = useState(null);
     const [fileError, setFileError] = useState(null);
-    const [sourceLang, setSource]   = useState('auto');
-    const [targetLang, setTarget]   = useState('en');
+    const [sourceLang, setSource]   = useState('Auto');
+    const [targetLang, setTarget]   = useState('English');
 
     const handleFile = useCallback((f, err) => {
         setFile(f);
@@ -323,8 +382,8 @@ function UploadView({ onSubmit }) {
                     </h1>
 
                     <p className="text-gray-400 text-base leading-relaxed max-w-xl">
-                        A 7-stage ML pipeline that runs entirely on your machine.
-                        No cloud uploads, complete privacy, state-of-the-art models.
+                        A 7-stage ML pipeline that runs on your machine.
+                        Video stays local — transcripts are sent to GitHub Models for translation and summarization.
                     </p>
                 </div>
 
@@ -336,6 +395,14 @@ function UploadView({ onSubmit }) {
                     </div>
 
                     <UploadDropzone file={file} onFile={handleFile} error={fileError} />
+
+                    <div className="mt-5 p-4 rounded-xl border border-border/80 bg-[#0D0D12]/60">
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                            <span className="font-semibold text-gray-300">Privacy:</span> Your video file is processed entirely on this machine.
+                            Transcripts and subtitle text are sent to GitHub Models for translation and summarization.
+                            No video is uploaded to the cloud.
+                        </p>
+                    </div>
 
                     <div className="mt-6 flex flex-col sm:flex-row gap-5 items-end">
                         <div className="flex-1 grid grid-cols-2 gap-4">
@@ -374,16 +441,15 @@ function UploadView({ onSubmit }) {
 
 // ─── Processing View ──────────────────────────────────────────────────────────
 const STAGES = [
-    'Transcription',
-    'Translation',
-    'Subtitle Generation',
+    'Video Validation',
+    'Audio Extraction',
+    'Voice Detection (VAD)',
+    'Transcription (STT)',
+    'Subtitle Export & Translation',
     'Summarization',
-    'Keyword Extraction',
-    'Sentiment Analysis',
-    'Export',
 ];
 
-function ProcessingView({ progress, onReset }) {
+function ProcessingView({ progress, onReset, isCanceling }) {
     const stageIndex = Math.floor((progress / 100) * STAGES.length);
     return (
         <div className="flex-1 flex items-center justify-center p-10 animate-fadein">
@@ -420,8 +486,13 @@ function ProcessingView({ progress, onReset }) {
                     })}
                 </div>
 
-                <Button variant="ghost" onClick={onReset} className="text-sm text-gray-600 hover:text-red-400">
-                    Cancel job
+                <Button
+                    variant="ghost"
+                    onClick={onReset}
+                    disabled={isCanceling}
+                    className="text-sm text-gray-600 hover:text-red-400 disabled:opacity-50"
+                >
+                    {isCanceling ? 'Canceling…' : 'Cancel job'}
                 </Button>
             </div>
         </div>
@@ -446,8 +517,26 @@ function ErrorView({ message, onReset }) {
     );
 }
 
+function downloadSrt(content, filename = 'subtitles.srt') {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
 // ─── Done View ────────────────────────────────────────────────────────────────
 function DoneView({ result, onReset }) {
+    const [transcriptTab, setTranscriptTab] = useState('source');
+
+    const transcripts = result?.transcripts || {};
+    const analysis = result?.analysis || {};
+    const detailedPoints = Array.isArray(analysis.detailed_points) ? analysis.detailed_points : [];
+
     return (
         <div className="flex-1 overflow-y-auto p-10 animate-fadein">
             <div className="max-w-2xl mx-auto">
@@ -460,12 +549,73 @@ function DoneView({ result, onReset }) {
                     <h2 className="text-2xl font-bold text-white">Processing complete</h2>
                 </div>
 
-                {result && Object.entries(result).map(([key, value]) => (
-                    <div key={key} className="bg-panel border border-border rounded-xl p-5 mb-4">
-                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">{key.replace(/_/g, ' ')}</p>
-                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</p>
+                {(result?.srt_output || result?.original_srt) && (
+                    <div className="bg-panel border border-border rounded-xl p-5 mb-4">
+                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">Subtitles</p>
+                        <div className="flex flex-wrap gap-3">
+                            {result?.srt_output && (
+                                <Button variant="secondary" onClick={() => downloadSrt(result.srt_output, 'translated.srt')}>
+                                    Download Translated SRT
+                                </Button>
+                            )}
+                            {result?.original_srt && (
+                                <Button variant="secondary" onClick={() => downloadSrt(result.original_srt, 'original.srt')}>
+                                    Download Original SRT
+                                </Button>
+                            )}
+                        </div>
                     </div>
-                ))}
+                )}
+
+                {analysis.short_summary && (
+                    <div className="bg-panel border border-border rounded-xl p-5 mb-4">
+                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">Summary</p>
+                        <p className="text-sm text-gray-200 leading-relaxed">{analysis.short_summary}</p>
+                    </div>
+                )}
+
+                {detailedPoints.length > 0 && (
+                    <div className="bg-panel border border-border rounded-xl p-5 mb-4">
+                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">Key Points</p>
+                        <ul className="space-y-2">
+                            {detailedPoints.map((point, i) => (
+                                <li key={i} className="flex gap-2 text-sm text-gray-300 leading-relaxed">
+                                    <span className="text-accent shrink-0 mt-0.5">•</span>
+                                    <span>{point}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {(transcripts.source || transcripts.translated) && (
+                    <div className="bg-panel border border-border rounded-xl p-5 mb-4">
+                        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-3">Transcript</p>
+                        <div className="flex gap-2 mb-4">
+                            {transcripts.source && (
+                                <button
+                                    type="button"
+                                    onClick={() => setTranscriptTab('source')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${transcriptTab === 'source' ? 'bg-accent text-white' : 'bg-[#0D0D12] text-gray-500 hover:text-gray-300'}`}
+                                >
+                                    Original
+                                </button>
+                            )}
+                            {transcripts.translated && (
+                                <button
+                                    type="button"
+                                    onClick={() => setTranscriptTab('translated')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${transcriptTab === 'translated' ? 'bg-accent text-white' : 'bg-[#0D0D12] text-gray-500 hover:text-gray-300'}`}
+                                >
+                                    Translated
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
+                            {transcriptTab === 'translated' ? transcripts.translated : transcripts.source}
+                        </p>
+                    </div>
+                )}
 
                 <div className="mt-8">
                     <Button variant="primary" onClick={onReset}>
@@ -489,109 +639,367 @@ async function startJob(file, sourceLang, targetLang) {
 
     const res = await fetch(`${BASE_URL}/process`, {
         method: 'POST',
-        headers: { 'X-API-Key': API_KEY },
         body: form,
     });
 
     if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail?.detail || `Server error ${res.status}`);
+        const message = typeof detail?.detail === 'string'
+            ? detail.detail
+            : `Server error ${res.status}`;
+        throw new Error(message);
     }
     return (await res.json()).job_id;
 }
 
 async function pollJob(jobId) {
-    const res = await fetch(`${BASE_URL}/status/${jobId}`, {
-        headers: { 'X-API-Key': API_KEY },
-    });
+    const res = await fetch(`${BASE_URL}/status/${jobId}`);
     if (!res.ok) throw new Error(`Poll error ${res.status}`);
     return res.json();
 }
 
+async function cancelJob(jobId) {
+    const maxAttempts = 5;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const res = await fetch(`${BASE_URL}/cancel/${jobId}`, { method: 'POST' });
+        if (res.ok) return;
+        if (res.status === 404 && attempt < maxAttempts - 1) {
+            await new Promise(r => setTimeout(r, 400));
+            continue;
+        }
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail || `Cancel failed (${res.status})`);
+    }
+}
+
+async function deleteJob(jobId) {
+    const res = await fetch(`${BASE_URL}/jobs/${jobId}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail || `Delete failed (${res.status})`);
+    }
+}
+
+function loadJobIds() {
+    try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]'); }
+    catch { return []; }
+}
+
+function saveJobIds(ids) {
+    localStorage.setItem(JOBS_KEY, JSON.stringify(ids));
+}
+
+function loadJobsMeta() {
+    try { return JSON.parse(localStorage.getItem(JOBS_META_KEY) || '{}'); }
+    catch { return {}; }
+}
+
+function saveJobMeta(jobId, patch) {
+    const id = String(jobId);
+    const all = loadJobsMeta();
+    all[id] = { ...(all[id] || {}), ...patch };
+    localStorage.setItem(JOBS_META_KEY, JSON.stringify(all));
+}
+
+function jobFromApi(data) {
+    const id = String(data.job_id);
+    const meta = loadJobsMeta()[id] || {};
+    return {
+        job_id: id,
+        status: data.status,
+        progress: data.progress ?? 0,
+        result: data.result ?? null,
+        error_message: data.error_message ?? null,
+        source_lang: data.source_lang || meta.source_lang || null,
+        target_lang: data.target_lang || meta.target_lang || null,
+        fileName: data.file_name || meta.fileName || null,
+    };
+}
+
+function patchFromApi(data) {
+    return {
+        job_id: String(data.job_id),
+        status: data.status,
+        progress: data.progress ?? 0,
+        result: data.result ?? undefined,
+        error_message: data.error_message ?? undefined,
+        source_lang: data.source_lang ?? undefined,
+        target_lang: data.target_lang ?? undefined,
+        fileName: data.file_name ?? undefined,
+    };
+}
+
+function upsertJobList(list, patch) {
+    const id = String(patch.job_id);
+    const idx = list.findIndex(j => String(j.job_id) === id);
+    if (idx >= 0) {
+        const next = [...list];
+        next[idx] = { ...next[idx], ...patch, job_id: id };
+        return next;
+    }
+    return [{ ...patch, job_id: id }, ...list];
+}
+
 // ─── App Root ─────────────────────────────────────────────────────────────────
 function App() {
-    // appState: 'idle' | 'uploading' | 'processing' | 'done' | 'error'
-    const [appState,  setAppState]  = useState('idle');
-    const [progress,  setProgress]  = useState(0);
-    const [result,    setResult]    = useState(null);
-    const [errMsg,    setErrMsg]    = useState('');
+    const [appState,    setAppState]    = useState('idle');
+    const [progress,    setProgress]    = useState(0);
+    const [result,      setResult]      = useState(null);
+    const [errMsg,      setErrMsg]      = useState('');
+    const [jobs,        setJobs]        = useState([]);
+    const [activeJobId, setActiveJobId] = useState(null);
+    const [isCanceling, setIsCanceling] = useState(false);
     const pollRef = useRef(null);
 
-    // Restore in-flight job from localStorage
-    React.useEffect(() => {
-        const saved = localStorage.getItem('substudy_job_id');
-        if (saved) {
-            setAppState('processing');
-            beginPolling(saved);
-        }
+    const stopPolling = () => {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+    };
+
+    const applyJobUpdate = useCallback((patch) => {
+        setJobs(prev => upsertJobList(prev, patch));
     }, []);
 
-    const beginPolling = (jobId) => {
+    const beginPolling = useCallback((jobId) => {
+        stopPolling();
         const MAX_MS = 10 * 60 * 1000;
         const start  = Date.now();
 
         const tick = async () => {
             if (Date.now() - start > MAX_MS) {
-                localStorage.removeItem('substudy_job_id');
+                localStorage.removeItem(ACTIVE_KEY);
+                applyJobUpdate({ job_id: jobId, status: 'failed', progress: 100 });
                 setErrMsg('Processing timed out. Check the backend logs.');
                 setAppState('error');
+                setActiveJobId(null);
                 return;
             }
             try {
                 const data = await pollJob(jobId);
-                setProgress(data.progress ?? 0);
+                const progressVal = data.progress ?? 0;
+                setProgress(progressVal);
+                applyJobUpdate(patchFromApi(data));
+
                 if (data.status === 'completed') {
-                    localStorage.removeItem('substudy_job_id');
+                    localStorage.removeItem(ACTIVE_KEY);
                     setResult(data.result);
                     setAppState('done');
-                } else if (data.status === 'failed') {
-                    localStorage.removeItem('substudy_job_id');
+                    setActiveJobId(jobId);
+                    return;
+                }
+                if (data.status === 'failed') {
+                    localStorage.removeItem(ACTIVE_KEY);
                     setErrMsg(data.error_message || 'An unknown error occurred.');
                     setAppState('error');
-                } else {
-                    pollRef.current = setTimeout(tick, 2000);
+                    setActiveJobId(jobId);
+                    return;
                 }
+                if (data.status === 'canceled') {
+                    localStorage.removeItem(ACTIVE_KEY);
+                    setActiveJobId(null);
+                    setProgress(progressVal);
+                    setAppState('idle');
+                    return;
+                }
+                pollRef.current = setTimeout(tick, 2000);
             } catch (e) {
-                pollRef.current = setTimeout(tick, 4000); // retry on network glitch
+                pollRef.current = setTimeout(tick, 4000);
             }
         };
         tick();
-    };
+    }, [applyJobUpdate]);
+
+    React.useEffect(() => {
+        const hydrate = async () => {
+            const legacy = localStorage.getItem('substudy_job_id');
+            if (legacy) {
+                const ids = loadJobIds();
+                if (!ids.includes(legacy)) saveJobIds([legacy, ...ids]);
+                localStorage.removeItem('substudy_job_id');
+                if (!localStorage.getItem(ACTIVE_KEY)) localStorage.setItem(ACTIVE_KEY, legacy);
+            }
+
+            const savedIds = loadJobIds();
+            if (savedIds.length === 0) return;
+
+            const hydrated = [];
+            for (const id of savedIds) {
+                try {
+                    const data = await pollJob(id);
+                    hydrated.push(jobFromApi(data));
+                } catch (e) {
+                    const meta = loadJobsMeta()[id];
+                    if (meta) {
+                        hydrated.push({ job_id: id, status: 'unknown', progress: 0, ...meta });
+                    }
+                }
+            }
+            if (hydrated.length > 0) setJobs(hydrated);
+
+            const active = localStorage.getItem(ACTIVE_KEY);
+            if (active && hydrated.some(j => j.job_id === active)) {
+                const activeJob = hydrated.find(j => j.job_id === active);
+                setActiveJobId(active);
+                if (activeJob.status === 'processing') {
+                    setAppState('processing');
+                    setProgress(activeJob.progress ?? 0);
+                    beginPolling(active);
+                } else if (activeJob.status === 'completed') {
+                    setResult(activeJob.result);
+                    setAppState('done');
+                } else if (activeJob.status === 'failed') {
+                    setErrMsg(activeJob.error_message || 'An unknown error occurred.');
+                    setAppState('error');
+                } else if (activeJob.status === 'canceled') {
+                    localStorage.removeItem(ACTIVE_KEY);
+                    setActiveJobId(null);
+                    setAppState('idle');
+                }
+            } else if (active) {
+                localStorage.removeItem(ACTIVE_KEY);
+            }
+        };
+        hydrate();
+        return () => stopPolling();
+    }, [beginPolling]);
 
     const handleSubmit = async (file, sourceLang, targetLang) => {
         setAppState('uploading');
         try {
             const jobId = await startJob(file, sourceLang, targetLang);
-            localStorage.setItem('substudy_job_id', jobId);
+            const id = String(jobId);
+
+            applyJobUpdate({
+                job_id: id,
+                status: 'processing',
+                progress: 0,
+                source_lang: sourceLang,
+                target_lang: targetLang,
+                fileName: file.name,
+            });
+            saveJobMeta(id, { source_lang: sourceLang, target_lang: targetLang, fileName: file.name });
+
+            const ids = loadJobIds();
+            if (!ids.includes(id)) saveJobIds([id, ...ids]);
+
+            localStorage.setItem(ACTIVE_KEY, id);
+            setActiveJobId(id);
             setAppState('processing');
             setProgress(0);
-            beginPolling(jobId);
+            setResult(null);
+            beginPolling(id);
         } catch (e) {
             setErrMsg(e.message || "Couldn't reach the server. Is the backend running on port 8000?");
             setAppState('error');
         }
     };
 
-    const handleReset = async () => {
-        // attempt to cancel on the backend if a job is being tracked
-        const saved = localStorage.getItem('substudy_job_id');
-        if (saved) {
-            try {
-                await fetch(`${BASE_URL}/cancel/${saved}`, {
-                    method: 'POST',
-                    headers: { 'X-API-Key': API_KEY }
-                });
-            } catch (e) {
-                // ignore network errors; proceed to reset UI
-            }
+    const handleCancel = async () => {
+        const jobId = activeJobId || localStorage.getItem(ACTIVE_KEY);
+        if (!jobId || isCanceling) return;
+
+        setIsCanceling(true);
+        stopPolling();
+
+        try {
+            await cancelJob(jobId);
+            applyJobUpdate({ job_id: jobId, status: 'canceled' });
+        } catch (e) {
+            setErrMsg(e.message || 'Could not cancel job on the server.');
+            setAppState('error');
+            setIsCanceling(false);
+            return;
         }
 
-        clearTimeout(pollRef.current);
-        localStorage.removeItem('substudy_job_id');
+        localStorage.removeItem(ACTIVE_KEY);
+        setActiveJobId(null);
         setProgress(0);
         setResult(null);
         setErrMsg('');
         setAppState('idle');
+        setIsCanceling(false);
+    };
+
+    const handleGoIdle = () => {
+        stopPolling();
+        localStorage.removeItem(ACTIVE_KEY);
+        setActiveJobId(null);
+        setProgress(0);
+        setResult(null);
+        setErrMsg('');
+        setAppState('idle');
+    };
+
+    const handleNewJob = () => {
+        if (appState === 'processing' || appState === 'uploading') {
+            handleCancel();
+        } else {
+            handleGoIdle();
+        }
+    };
+
+    const handleSelectJob = (jobId) => {
+        const job = jobs.find(j => String(j.job_id) === jobId);
+        if (!job) return;
+
+        setActiveJobId(jobId);
+
+        if (job.status === 'completed' && job.result) {
+            stopPolling();
+            localStorage.removeItem(ACTIVE_KEY);
+            setResult(job.result);
+            setAppState('done');
+            return;
+        }
+        if (job.status === 'failed') {
+            stopPolling();
+            localStorage.removeItem(ACTIVE_KEY);
+            setErrMsg(job.error_message || 'An unknown error occurred.');
+            setAppState('error');
+            return;
+        }
+        if (job.status === 'processing') {
+            localStorage.setItem(ACTIVE_KEY, jobId);
+            setProgress(job.progress ?? 0);
+            setAppState('processing');
+            beginPolling(jobId);
+            return;
+        }
+        if (job.status === 'canceled') {
+            stopPolling();
+            localStorage.removeItem(ACTIVE_KEY);
+            setAppState('idle');
+        }
+    };
+
+    const handleDeleteJob = async (jobId) => {
+        const job = jobs.find(j => String(j.job_id) === jobId);
+        if (!job || job.status === 'processing') return;
+
+        if (!window.confirm('Delete this job from history?')) return;
+
+        try {
+            await deleteJob(jobId);
+        } catch (e) {
+            setErrMsg(e.message || 'Could not delete job.');
+            setAppState('error');
+            return;
+        }
+
+        saveJobIds(loadJobIds().filter(id => id !== jobId));
+        const meta = loadJobsMeta();
+        delete meta[jobId];
+        localStorage.setItem(JOBS_META_KEY, JSON.stringify(meta));
+        setJobs(prev => prev.filter(j => String(j.job_id) !== jobId));
+
+        if (activeJobId === jobId) {
+            stopPolling();
+            localStorage.removeItem(ACTIVE_KEY);
+            setActiveJobId(null);
+            setResult(null);
+            setErrMsg('');
+            setAppState('idle');
+        }
     };
 
     const mainContent = () => {
@@ -600,11 +1008,11 @@ function App() {
             case 'idle':
                 return <UploadView onSubmit={handleSubmit} />;
             case 'processing':
-                return <ProcessingView progress={progress} onReset={handleReset} />;
+                return <ProcessingView progress={progress} onReset={handleCancel} isCanceling={isCanceling} />;
             case 'done':
-                return <DoneView result={result} onReset={handleReset} />;
+                return <DoneView result={result} onReset={handleGoIdle} />;
             case 'error':
-                return <ErrorView message={errMsg} onReset={handleReset} />;
+                return <ErrorView message={errMsg} onReset={handleGoIdle} />;
             default:
                 return <UploadView onSubmit={handleSubmit} />;
         }
@@ -612,7 +1020,13 @@ function App() {
 
     return (
         <div className="flex h-screen overflow-hidden">
-            <Sidebar onNewJob={handleReset} />
+            <Sidebar
+                jobs={jobs}
+                activeJobId={activeJobId}
+                onNewJob={handleNewJob}
+                onSelectJob={handleSelectJob}
+                onDeleteJob={handleDeleteJob}
+            />
             {mainContent()}
         </div>
     );
